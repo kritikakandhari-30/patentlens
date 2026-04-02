@@ -1,354 +1,90 @@
-import os
-import json
-import ssl
+import os, json, ssl
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.request import urlopen, Request
-from urllib.error import URLError, HTTPError
+from urllib.error import HTTPError
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 PORT = int(os.environ.get("PORT", 8000))
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-haiku-4-5-20251001"
 
-HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PatentLens — IP Classification Analyzer</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap');
-:root{--bg:#F4F1EB;--surface:#FDFBF8;--surface2:#EEEAE0;--ink:#1C1915;--ink2:#4A4540;--ink3:#8A837A;--accent:#2D5F3F;--accent2:#1A3D27;--accent-light:#E6F2EC;--amber:#B86A08;--amber-light:#FEF3E2;--blue:#1B4F8A;--blue-light:#E8F0FB;--red-light:#FEE2E2;--purple-light:#EDE9FE;--green-light:#F0FDF4;--border:rgba(28,25,21,0.09);--border2:rgba(28,25,21,0.05);--r:10px;}
-*{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;overflow:hidden;}
-body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--ink);font-size:13px;display:flex;flex-direction:column;}
-.hdr{background:var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;height:52px;flex-shrink:0;}
-.hdr-logo{display:flex;align-items:center;gap:9px;}
-.hdr-mark{width:28px;height:28px;background:var(--accent);border-radius:6px;display:grid;grid-template-columns:1fr 1fr;gap:2px;padding:5px;}
-.hdr-mark span{background:#fff;border-radius:1px;opacity:.85;}
-.hdr-mark span:nth-child(2),.hdr-mark span:nth-child(3){opacity:.5;}
-.hdr-mark span:nth-child(4){opacity:.25;}
-.hdr-name{font-family:'DM Serif Display',serif;font-size:17px;color:#fff;letter-spacing:-.2px;}
-.hdr-sub{font-size:10px;color:rgba(255,255,255,.38);margin-left:2px;}
-.hdr-right{display:flex;gap:8px;align-items:center;}
-.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:8px;font-size:12px;font-family:'Outfit',sans-serif;font-weight:500;cursor:pointer;border:none;transition:all .15s;white-space:nowrap;}
-.btn-ghost{background:rgba(255,255,255,.07);color:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.12);}
-.btn-ghost:hover{background:rgba(255,255,255,.12);color:#fff;}
-.btn-green{background:var(--accent);color:#fff;}
-.btn-green:hover{background:var(--accent2);}
-.btn-green:disabled{opacity:.45;cursor:not-allowed;}
-.btn-amber{background:var(--amber);color:#fff;}
-.btn-amber:hover{background:#955508;}
-.btn-amber:disabled{opacity:.4;cursor:not-allowed;}
-.page{display:flex;flex:1;overflow:hidden;}
-.sidebar{width:300px;min-width:280px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
-.sb-body{flex:1;overflow-y:auto;padding:1.25rem;}
-.sb-body::-webkit-scrollbar{width:3px;}
-.sb-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
-.lbl{font-size:9.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px;}
-.drop-zone{border:1.5px dashed var(--border);border-radius:var(--r);padding:1.25rem;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:1rem;background:var(--bg);}
-.drop-zone:hover,.drop-zone.over{border-color:var(--accent);background:var(--accent-light);}
-.drop-icon{width:32px;height:32px;background:var(--surface2);border-radius:7px;display:flex;align-items:center;justify-content:center;margin:0 auto 8px;}
-.drop-icon svg{width:16px;height:16px;color:var(--ink3);}
-.drop-t{font-size:12px;font-weight:500;color:var(--ink);margin-bottom:2px;}
-.drop-s{font-size:10.5px;color:var(--ink3);}
-.file-chip{display:flex;align-items:center;gap:7px;background:var(--accent-light);border:1px solid rgba(45,95,63,.18);border-radius:8px;padding:7px 10px;margin-bottom:1rem;font-size:11px;color:var(--accent2);font-weight:500;}
-.file-chip svg{width:13px;height:13px;flex-shrink:0;}
-.file-chip-x{margin-left:auto;cursor:pointer;opacity:.5;font-size:16px;line-height:1;}
-.file-chip-x:hover{opacity:1;}
-.textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:9px 11px;font-family:'Outfit',sans-serif;font-size:12px;color:var(--ink);resize:vertical;min-height:180px;line-height:1.6;margin-bottom:3px;transition:border-color .15s;}
-.textarea:focus{outline:none;border-color:var(--accent);}
-.textarea::placeholder{color:var(--ink3);}
-.char-ct{font-size:10px;color:var(--ink3);text-align:right;margin-bottom:.9rem;}
-.checks{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:1rem;}
-.chk{display:flex;align-items:center;gap:5px;padding:6px 9px;border:1px solid var(--border);border-radius:7px;font-size:11.5px;color:var(--ink2);cursor:pointer;transition:all .15s;background:var(--bg);user-select:none;}
-.chk input{display:none;}
-.chk.on{border-color:var(--accent);background:var(--accent-light);color:var(--accent2);font-weight:500;}
-.dot{width:13px;height:13px;border-radius:50%;border:1.5px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;}
-.chk.on .dot{background:var(--accent);border-color:var(--accent);}
-.dot-i{width:4px;height:4px;border-radius:50%;background:#fff;display:none;}
-.chk.on .dot-i{display:block;}
-.run-btn{width:100%;justify-content:center;padding:10px;font-size:13px;border-radius:var(--r);}
-.sb-foot{padding:9px 1.25rem;border-top:1px solid var(--border);display:flex;align-items:center;gap:7px;font-size:11px;color:var(--ink3);background:var(--surface);}
-.sdot{width:6px;height:6px;border-radius:50%;background:var(--ink3);flex-shrink:0;}
-.sdot.go{background:var(--accent);animation:blink 1.4s infinite;}
-.sdot.ok{background:var(--accent);}
-.sdot.err{background:#DC2626;}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
-.main{flex:1;overflow:hidden;display:flex;flex-direction:column;}
-.main-hdr{padding:1rem 1.5rem;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;flex-shrink:0;}
-.main-title{font-family:'DM Serif Display',serif;font-size:18px;color:var(--ink);letter-spacing:-.2px;}
-.main-sub{font-size:11px;color:var(--ink3);margin-top:1px;}
-.toolbar{display:flex;align-items:center;gap:7px;flex-shrink:0;}
-.srch{padding:6px 11px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'Outfit',sans-serif;background:var(--bg);color:var(--ink);width:180px;transition:all .15s;}
-.srch:focus{outline:none;border-color:var(--accent);width:210px;}
-.tabs{display:flex;padding:0 1.5rem;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;}
-.tab{padding:9px 16px;font-size:12px;font-weight:500;color:var(--ink3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;display:flex;align-items:center;gap:6px;}
-.tab:hover{color:var(--ink);}
-.tab.on{color:var(--accent);border-bottom-color:var(--accent);}
-.tbadge{background:var(--surface2);color:var(--ink3);font-size:9.5px;font-weight:600;padding:1px 5px;border-radius:9px;}
-.tab.on .tbadge{background:var(--accent-light);color:var(--accent);}
-.stats{display:flex;border-bottom:1px solid var(--border);background:var(--surface);padding:0 1.5rem;overflow-x:auto;flex-shrink:0;}
-.stat{padding:9px 18px 9px 0;white-space:nowrap;}
-.stat+.stat{border-left:1px solid var(--border);padding-left:18px;}
-.stat-n{font-family:'DM Serif Display',serif;font-size:20px;color:var(--ink);line-height:1;}
-.stat-l{font-size:10px;color:var(--ink3);line-height:1.4;}
-.content{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column;}
-.loader{display:none;position:absolute;inset:0;background:rgba(244,241,235,.9);backdrop-filter:blur(3px);z-index:40;flex-direction:column;align-items:center;justify-content:center;gap:12px;}
-.loader.on{display:flex;}
-.spin{width:32px;height:32px;border:2.5px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .75s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg)}}
-.load-t{font-size:13px;color:var(--ink2);font-weight:500;}
-.load-s{font-size:11px;color:var(--ink3);}
-.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2.5rem;text-align:center;}
-.empty-ic{width:56px;height:56px;background:var(--surface2);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;}
-.empty-ic svg{width:24px;height:24px;color:var(--ink3);}
-.empty-t{font-family:'DM Serif Display',serif;font-size:18px;color:var(--ink);margin-bottom:6px;}
-.empty-s{font-size:12px;color:var(--ink3);max-width:300px;line-height:1.6;}
-.panel{display:none;flex-direction:column;flex:1;overflow:hidden;}
-.panel.on{display:flex;}
-.tbl-wrap{flex:1;overflow:auto;}
-.tbl-wrap::-webkit-scrollbar{width:5px;height:5px;}
-.tbl-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
-table{width:100%;border-collapse:collapse;font-size:12px;}
-thead{position:sticky;top:0;z-index:10;}
-th{padding:10px 14px;text-align:left;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap;}
-td{padding:11px 14px;border-bottom:1px solid var(--border2);vertical-align:top;color:var(--ink);line-height:1.55;}
-tbody tr:hover td{background:var(--surface2);}
-.rn{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);width:36px;text-align:center;}
-.code{font-family:'DM Mono',monospace;font-size:11.5px;font-weight:500;color:var(--blue);white-space:nowrap;}
-.badge{display:inline-block;padding:2px 7px;border-radius:9px;font-size:10.5px;font-weight:500;white-space:nowrap;}
-.b-core{background:var(--green-light);color:#14532D;}
-.b-mat{background:var(--amber-light);color:#78350F;}
-.b-proc{background:var(--accent-light);color:var(--accent2);}
-.b-app{background:var(--red-light);color:#991B1B;}
-.b-comp{background:var(--purple-light);color:#4C1D95;}
-.b-ipc{background:var(--blue-light);color:var(--blue);}
-.b-cpc{background:#ECFDF5;color:#065F46;}
-.syns{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;}
-.syn{background:var(--surface2);color:var(--ink2);font-size:10px;padding:2px 6px;border-radius:5px;border:1px solid var(--border);}
-.panel-foot{padding:8px 1.5rem;border-top:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--ink3);}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:#fff;padding:9px 14px;border-radius:9px;font-size:12px;font-weight:500;transform:translateY(70px);opacity:0;transition:all .3s;z-index:200;max-width:340px;}
-.toast.show{transform:translateY(0);opacity:1;}
-.toast.ok{background:var(--accent);}
-.toast.err{background:#DC2626;}
-input[type=file]{display:none;}
-</style>
-</head>
-<body>
-<header class="hdr">
-  <div class="hdr-logo">
-    <div class="hdr-mark"><span></span><span></span><span></span><span></span></div>
-    <span class="hdr-name">PatentLens</span>
-    <span class="hdr-sub">IP Classification Analyzer</span>
-  </div>
-  <div class="hdr-right">
-    <button class="btn btn-ghost" onclick="clearAll()">Clear</button>
-    <button class="btn btn-amber" id="dlBtn" onclick="dlCSV()" disabled>Download CSV</button>
-  </div>
-</header>
-<div class="page">
-  <aside class="sidebar">
-    <div class="sb-body">
-      <p class="lbl">Invention Disclosure</p>
-      <div class="drop-zone" id="dz" onclick="document.getElementById('fi').click()" ondragover="dzOver(event)" ondragleave="dzOut()" ondrop="dzDrop(event)">
-        <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="12" x2="12" y2="18"/><polyline points="9 15 12 12 15 15"/></svg></div>
-        <div class="drop-t">Upload .txt file</div>
-        <div class="drop-s">Drag and drop or click to browse</div>
-      </div>
-      <input type="file" id="fi" accept=".txt" onchange="loadFile(event)">
-      <div id="fp" class="file-chip" style="display:none">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        <span id="fn">file.txt</span><span class="file-chip-x" onclick="rmFile()">x</span>
-      </div>
-      <p class="lbl" style="margin-top:4px">Or paste text</p>
-      <textarea class="textarea" id="txt" placeholder="Paste your invention disclosure text here..." oninput="updCC()"></textarea>
-      <div class="char-ct" id="cc">0 characters</div>
-      <p class="lbl">Output Sections</p>
-      <div class="checks">
-        <label class="chk on" id="ck-kw"><div class="dot"><div class="dot-i"></div></div><input type="checkbox" checked onchange="togChk(this,'ck-kw')"> Keywords</label>
-        <label class="chk on" id="ck-ipc"><div class="dot"><div class="dot-i"></div></div><input type="checkbox" checked onchange="togChk(this,'ck-ipc')"> IPC Classes</label>
-        <label class="chk on" id="ck-cpc"><div class="dot"><div class="dot-i"></div></div><input type="checkbox" checked onchange="togChk(this,'ck-cpc')"> CPC Classes</label>
-        <label class="chk on" id="ck-syn"><div class="dot"><div class="dot-i"></div></div><input type="checkbox" checked onchange="togChk(this,'ck-syn')"> Synonyms</label>
-      </div>
-      <button class="btn btn-green run-btn" id="runBtn" onclick="analyze()">Analyze Invention</button>
-    </div>
-    <div class="sb-foot"><div class="sdot" id="sdot"></div><span id="stxt">Paste your invention disclosure and click Analyze</span></div>
-  </aside>
-  <main class="main">
-    <div class="main-hdr">
-      <div><div class="main-title" id="mtitle">Analysis Results</div><div class="main-sub" id="msub">Paste your invention disclosure text and click Analyze Invention</div></div>
-      <div class="toolbar"><input class="srch" type="text" placeholder="Search results..." oninput="doSearch(this.value)" id="srch"></div>
-    </div>
-    <div class="tabs">
-      <div class="tab on" onclick="goTab('kw',this)">Keywords <span class="tbadge" id="bkw">0</span></div>
-      <div class="tab" onclick="goTab('ipc',this)">IPC Classes <span class="tbadge" id="bipc">0</span></div>
-      <div class="tab" onclick="goTab('cpc',this)">CPC Classes <span class="tbadge" id="bcpc">0</span></div>
-    </div>
-    <div class="stats" id="statsRow" style="display:none">
-      <div class="stat"><div class="stat-n" id="skw">0</div><div class="stat-l">Keywords<br>extracted</div></div>
-      <div class="stat"><div class="stat-n" id="sipc">0</div><div class="stat-l">IPC<br>classes</div></div>
-      <div class="stat"><div class="stat-n" id="scpc">0</div><div class="stat-l">CPC<br>classes</div></div>
-      <div class="stat"><div class="stat-n" id="ssyn">0</div><div class="stat-l">Synonyms<br>mapped</div></div>
-    </div>
-    <div class="content">
-      <div class="loader" id="ldr"><div class="spin"></div><div class="load-t" id="lt">Analyzing invention disclosure...</div><div class="load-s">This takes 30-60 seconds</div></div>
-      <div class="empty" id="emp">
-        <div class="empty-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
-        <div class="empty-t">No analysis yet</div>
-        <div class="empty-s">Paste your invention disclosure text on the left and click Analyze Invention to begin.</div>
-      </div>
-      <div class="panel" id="p-kw"><div class="tbl-wrap"><table><thead><tr><th class="rn">#</th><th style="min-width:150px">Keyword</th><th style="min-width:100px">Category</th><th style="min-width:220px">Definition</th><th style="min-width:200px">Synonyms</th></tr></thead><tbody id="kwb"></tbody></table></div><div class="panel-foot"><span id="kwc">-</span></div></div>
-      <div class="panel" id="p-ipc"><div class="tbl-wrap"><table><thead><tr><th class="rn">#</th><th style="min-width:100px">IPC Code</th><th style="min-width:120px">Section</th><th style="min-width:240px">Official Definition</th><th style="min-width:210px">Relevance</th></tr></thead><tbody id="ipcb"></tbody></table></div><div class="panel-foot"><span id="ipcc">-</span></div></div>
-      <div class="panel" id="p-cpc"><div class="tbl-wrap"><table><thead><tr><th class="rn">#</th><th style="min-width:100px">CPC Code</th><th style="min-width:120px">Section</th><th style="min-width:240px">Official Definition</th><th style="min-width:210px">Relevance</th></tr></thead><tbody id="cpcb"></tbody></table></div><div class="panel-foot"><span id="cpcc">-</span></div></div>
-    </div>
-  </main>
-</div>
-<div class="toast" id="toast"></div>
-<script>
-let data={};
-function dzOver(e){e.preventDefault();document.getElementById('dz').classList.add('over');}
-function dzOut(){document.getElementById('dz').classList.remove('over');}
-function dzDrop(e){e.preventDefault();dzOut();const f=e.dataTransfer.files[0];if(f)readFile(f);}
-function loadFile(e){const f=e.target.files[0];if(f)readFile(f);}
-function readFile(f){const r=new FileReader();r.onload=ev=>{document.getElementById('txt').value=ev.target.result;updCC();};r.readAsText(f);document.getElementById('fn').textContent=f.name;document.getElementById('fp').style.display='flex';document.getElementById('dz').style.display='none';toast('File loaded: '+f.name,'ok');}
-function rmFile(){document.getElementById('fp').style.display='none';document.getElementById('dz').style.display='block';document.getElementById('fi').value='';}
-function updCC(){document.getElementById('cc').textContent=document.getElementById('txt').value.length.toLocaleString()+' characters';}
-function togChk(inp,id){document.getElementById(id).classList.toggle('on',inp.checked);}
-function goTab(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));el.classList.add('on');document.getElementById('p-'+t).classList.add('on');doSearch(document.getElementById('srch').value);}
-function doSearch(q){q=q.toLowerCase().trim();['kw','ipc','cpc'].forEach(t=>{const b=document.getElementById(t+'b');if(!b)return;let v=0;b.querySelectorAll('tr').forEach(r=>{const m=!q||r.textContent.toLowerCase().includes(q);r.style.display=m?'':'none';if(m)v++;});document.getElementById(t+'c').textContent=v+' result'+(v!==1?'s':'');});}
-async function analyze(){
-  const txt=document.getElementById('txt').value.trim();
-  if(!txt){toast('Please paste your invention disclosure text','err');return;}
-  setSt('go','Analyzing...');document.getElementById('ldr').classList.add('on');document.getElementById('emp').style.display='none';document.getElementById('runBtn').disabled=true;
-  const msgs=['Analyzing invention disclosure...','Mapping IPC classification hierarchy...','Identifying CPC subgroups...','Generating synonyms and variants...','Building classification report...'];
-  let mi=0;const iv=setInterval(()=>{document.getElementById('lt').textContent=msgs[++mi%msgs.length];},2800);
-  try{
-    const res=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt})});
-    clearInterval(iv);
-    const d=await res.json();
-    if(!res.ok||d.error)throw new Error(d.error||'Server error');
-    data=d;render(d);
-    document.getElementById('mtitle').textContent=d.title||'Analysis Results';
-    document.getElementById('msub').textContent=d.summary||'Patent classification analysis complete';
-    document.getElementById('dlBtn').disabled=false;document.getElementById('statsRow').style.display='flex';
-    const ts=(d.keywords||[]).reduce((a,k)=>a+(k.synonyms||[]).length,0);
-    document.getElementById('skw').textContent=(d.keywords||[]).length;
-    document.getElementById('sipc').textContent=(d.ipc||[]).length;
-    document.getElementById('scpc').textContent=(d.cpc||[]).length;
-    document.getElementById('ssyn').textContent=ts;
-    document.getElementById('bkw').textContent=(d.keywords||[]).length;
-    document.getElementById('bipc').textContent=(d.ipc||[]).length;
-    document.getElementById('bcpc').textContent=(d.cpc||[]).length;
-    goTab('kw',document.querySelector('.tab'));
-    setSt('ok','Done - '+(d.keywords||[]).length+' keywords, '+(d.ipc||[]).length+' IPC, '+(d.cpc||[]).length+' CPC');
-    toast('Analysis complete!','ok');
-  }catch(err){clearInterval(iv);setSt('err','Error: '+err.message);toast('Error: '+err.message,'err');document.getElementById('emp').style.display='flex';}
-  finally{document.getElementById('ldr').classList.remove('on');document.getElementById('runBtn').disabled=false;}
-}
-const catMap={'Core Invention':'b-core','Material':'b-mat','Process':'b-proc','Application':'b-app','Comparative':'b-comp'};
-function render(d){
-  document.getElementById('kwb').innerHTML=(d.keywords||[]).map((k,i)=>`<tr><td class="rn">${i+1}</td><td><strong style="font-weight:500">${h(k.term)}</strong></td><td><span class="badge ${catMap[k.category]||'b-core'}">${h(k.category)}</span></td><td style="max-width:240px">${h(k.definition)}</td><td><div class="syns">${(k.synonyms||[]).map(s=>`<span class="syn">${h(s)}</span>`).join('')}</div></td></tr>`).join('');
-  document.getElementById('kwc').textContent=(d.keywords||[]).length+' results';
-  document.getElementById('ipcb').innerHTML=(d.ipc||[]).map((c,i)=>`<tr><td class="rn">${i+1}</td><td class="code">${h(c.code)}</td><td><span class="badge b-ipc">${h(c.section)}</span></td><td style="max-width:240px">${h(c.definition)}</td><td style="max-width:210px;color:var(--ink2)">${h(c.relevance)}</td></tr>`).join('');
-  document.getElementById('ipcc').textContent=(d.ipc||[]).length+' results';
-  document.getElementById('cpcb').innerHTML=(d.cpc||[]).map((c,i)=>`<tr><td class="rn">${i+1}</td><td class="code">${h(c.code)}</td><td><span class="badge b-cpc">${h(c.section)}</span></td><td style="max-width:240px">${h(c.definition)}</td><td style="max-width:210px;color:var(--ink2)">${h(c.relevance)}</td></tr>`).join('');
-  document.getElementById('cpcc').textContent=(d.cpc||[]).length+' results';
-}
-function dlCSV(){
-  if(!data.keywords){toast('No data','err');return;}
-  const e=v=>'"'+String(v||'').replace(/"/g,'""')+'"';
-  const rows=[['PATENT CLASSIFICATION ANALYSIS'],['Invention:',data.title||''],['Summary:',data.summary||''],[]];
-  rows.push(['=== KEYWORDS ==='],['#','Keyword','Category','Definition','Syn1','Syn2','Syn3','Syn4','Syn5']);
-  (data.keywords||[]).forEach((k,i)=>{const s=k.synonyms||[];rows.push([i+1,k.term,k.category,k.definition,s[0]||'',s[1]||'',s[2]||'',s[3]||'',s[4]||'']);});
-  rows.push([],['=== IPC CODES ==='],['#','Code','Section','Definition','Relevance']);
-  (data.ipc||[]).forEach((c,i)=>rows.push([i+1,c.code,c.section,c.definition,c.relevance]));
-  rows.push([],['=== CPC CODES ==='],['#','Code','Section','Definition','Relevance']);
-  (data.cpc||[]).forEach((c,i)=>rows.push([i+1,c.code,c.section,c.definition,c.relevance]));
-  const csv=rows.map(r=>r.map(e).join(',')).join('\\n');
-  const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob(['\\uFEFF'+csv],{type:'text/csv;charset=utf-8;'})),download:'patent_classification.csv'});
-  a.click();toast('CSV downloaded','ok');
-}
-function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function setSt(s,t){document.getElementById('sdot').className='sdot '+s;document.getElementById('stxt').textContent=t;}
-function toast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+type+' show';setTimeout(()=>t.classList.remove('show'),4000);}
-function clearAll(){data={};['kw','ipc','cpc'].forEach(t=>{const b=document.getElementById(t+'b');if(b)b.innerHTML='';document.getElementById(t+'c').textContent='-';document.getElementById('b'+t).textContent='0';});document.getElementById('txt').value='';document.getElementById('emp').style.display='flex';document.getElementById('statsRow').style.display='none';document.getElementById('dlBtn').disabled=true;document.getElementById('mtitle').textContent='Analysis Results';document.getElementById('msub').textContent='Paste your invention disclosure text and click Analyze Invention';rmFile();updCC();setSt('','Paste your invention disclosure and click Analyze');}
-</script>
-</body>
-</html>"""
+HTML = open("index.html").read() if os.path.exists("index.html") else """<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PatentLens</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui,sans-serif;background:#F4F1EB;color:#1C1915;font-size:13px;display:flex;flex-direction:column;height:100vh;overflow:hidden}.hdr{background:#1C1915;display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;height:52px;flex-shrink:0}.logo{display:flex;align-items:center;gap:8px}.lm{width:26px;height:26px;background:#2D5F3F;border-radius:5px;display:grid;grid-template-columns:1fr 1fr;gap:2px;padding:4px}.lm span{background:#fff;border-radius:1px;opacity:.85}.lm span:nth-child(2),.lm span:nth-child(3){opacity:.5}.lm span:nth-child(4){opacity:.25}.ln{font-size:16px;color:#fff;font-weight:600}.ls{font-size:10px;color:rgba(255,255,255,.4);margin-left:2px}.hbtn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;border:none;transition:all .15s}.hbtn.ghost{background:rgba(255,255,255,.07);color:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.12)}.hbtn.ghost:hover{background:rgba(255,255,255,.12);color:#fff}.hbtn.amber{background:#B86A08;color:#fff}.hbtn.amber:hover{background:#955508}.hbtn.amber:disabled{opacity:.4;cursor:not-allowed}.page{display:flex;flex:1;overflow:hidden}.sb{width:290px;min-width:270px;background:#FDFBF8;border-right:1px solid rgba(28,25,21,.09);display:flex;flex-direction:column;overflow:hidden}.sbb{flex:1;overflow-y:auto;padding:1.25rem}.sbb::-webkit-scrollbar{width:3px}.sbb::-webkit-scrollbar-thumb{background:rgba(28,25,21,.09);border-radius:2px}.lbl{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8A837A;margin-bottom:8px}.dz{border:1.5px dashed rgba(28,25,21,.09);border-radius:10px;padding:1.25rem;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:1rem;background:#F4F1EB}.dz:hover{border-color:#2D5F3F;background:#E6F2EC}.dzt{font-size:12px;font-weight:500;color:#1C1915;margin-bottom:2px}.dzs{font-size:10.5px;color:#8A837A}.fc{display:flex;align-items:center;gap:7px;background:#E6F2EC;border:1px solid rgba(45,95,63,.18);border-radius:8px;padding:7px 10px;margin-bottom:1rem;font-size:11px;color:#1A3D27;font-weight:500}.fcx{margin-left:auto;cursor:pointer;opacity:.5;font-size:16px}.fcx:hover{opacity:1}.ta{width:100%;background:#F4F1EB;border:1px solid rgba(28,25,21,.09);border-radius:10px;padding:9px 11px;font-family:system-ui;font-size:12px;color:#1C1915;resize:vertical;min-height:160px;line-height:1.6;margin-bottom:3px}.ta:focus{outline:none;border-color:#2D5F3F}.ta::placeholder{color:#8A837A}.cc{font-size:10px;color:#8A837A;text-align:right;margin-bottom:.9rem}.chks{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:1rem}.chk{display:flex;align-items:center;gap:5px;padding:6px 9px;border:1px solid rgba(28,25,21,.09);border-radius:7px;font-size:11.5px;color:#4A4540;cursor:pointer;transition:all .15s;background:#F4F1EB;user-select:none}.chk input{display:none}.chk.on{border-color:#2D5F3F;background:#E6F2EC;color:#1A3D27;font-weight:500}.dot{width:13px;height:13px;border-radius:50%;border:1.5px solid rgba(28,25,21,.09);flex-shrink:0;display:flex;align-items:center;justify-content:center}.chk.on .dot{background:#2D5F3F;border-color:#2D5F3F}.doti{width:4px;height:4px;border-radius:50%;background:#fff;display:none}.chk.on .doti{display:block}.rbtn{width:100%;justify-content:center;padding:10px;font-size:13px;border-radius:10px;background:#2D5F3F;color:#fff;display:flex;align-items:center;gap:6px;cursor:pointer;border:none;font-family:system-ui;font-weight:500}.rbtn:hover{background:#1A3D27}.rbtn:disabled{opacity:.45;cursor:not-allowed}.sbf{padding:9px 1.25rem;border-top:1px solid rgba(28,25,21,.09);display:flex;align-items:center;gap:7px;font-size:11px;color:#8A837A;background:#FDFBF8}.sd{width:6px;height:6px;border-radius:50%;background:#8A837A;flex-shrink:0}.sd.go{background:#2D5F3F;animation:blink 1.4s infinite}.sd.ok{background:#2D5F3F}.sd.err{background:#DC2626}@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}.main{flex:1;overflow:hidden;display:flex;flex-direction:column}.mh{padding:1rem 1.5rem;border-bottom:1px solid rgba(28,25,21,.09);background:#FDFBF8;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;flex-shrink:0}.mt{font-size:18px;color:#1C1915;font-weight:600}.ms{font-size:11px;color:#8A837A;margin-top:1px}.sr{padding:6px 11px;border:1px solid rgba(28,25,21,.09);border-radius:8px;font-size:12px;font-family:system-ui;background:#F4F1EB;color:#1C1915;width:180px}.sr:focus{outline:none;border-color:#2D5F3F}.tabs{display:flex;padding:0 1.5rem;background:#FDFBF8;border-bottom:1px solid rgba(28,25,21,.09);flex-shrink:0}.tab{padding:9px 16px;font-size:12px;font-weight:500;color:#8A837A;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;display:flex;align-items:center;gap:6px}.tab:hover{color:#1C1915}.tab.on{color:#2D5F3F;border-bottom-color:#2D5F3F}.tbg{background:#EEEAE0;color:#8A837A;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:9px}.tab.on .tbg{background:#E6F2EC;color:#2D5F3F}.stats{display:flex;border-bottom:1px solid rgba(28,25,21,.09);background:#FDFBF8;padding:0 1.5rem;overflow-x:auto;flex-shrink:0}.stat{padding:9px 18px 9px 0;white-space:nowrap}.stat+.stat{border-left:1px solid rgba(28,25,21,.09);padding-left:18px}.sn{font-size:20px;color:#1C1915;font-weight:600;line-height:1}.sl{font-size:10px;color:#8A837A;line-height:1.4}.cnt{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column}.ldr{display:none;position:absolute;inset:0;background:rgba(244,241,235,.9);z-index:40;flex-direction:column;align-items:center;justify-content:center;gap:12px}.ldr.on{display:flex}.spin{width:32px;height:32px;border:2.5px solid rgba(28,25,21,.09);border-top-color:#2D5F3F;border-radius:50%;animation:spin .75s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.lt{font-size:13px;color:#4A4540;font-weight:500}.ls2{font-size:11px;color:#8A837A}.emp{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2.5rem;text-align:center}.et{font-size:18px;color:#1C1915;font-weight:600;margin-bottom:6px}.es{font-size:12px;color:#8A837A;max-width:300px;line-height:1.6}.panel{display:none;flex-direction:column;flex:1;overflow:hidden}.panel.on{display:flex}.tw{flex:1;overflow:auto}.tw::-webkit-scrollbar{width:5px;height:5px}.tw::-webkit-scrollbar-thumb{background:rgba(28,25,21,.09);border-radius:3px}table{width:100%;border-collapse:collapse;font-size:12px}thead{position:sticky;top:0;z-index:10}th{padding:10px 14px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8A837A;background:#EEEAE0;border-bottom:1px solid rgba(28,25,21,.09);white-space:nowrap}td{padding:11px 14px;border-bottom:1px solid rgba(28,25,21,.05);vertical-align:top;color:#1C1915;line-height:1.55}tbody tr:hover td{background:#EEEAE0}.rn{font-family:monospace;font-size:10px;color:#8A837A;width:36px;text-align:center}.code{font-family:monospace;font-size:11.5px;font-weight:600;color:#1B4F8A;white-space:nowrap}.badge{display:inline-block;padding:2px 7px;border-radius:9px;font-size:10.5px;font-weight:500;white-space:nowrap}.b1{background:#F0FDF4;color:#14532D}.b2{background:#FEF3E2;color:#78350F}.b3{background:#E6F2EC;color:#1A3D27}.b4{background:#FEE2E2;color:#991B1B}.b5{background:#EDE9FE;color:#4C1D95}.bi{background:#E8F0FB;color:#1B4F8A}.bc{background:#ECFDF5;color:#065F46}.syns{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}.syn{background:#EEEAE0;color:#4A4540;font-size:10px;padding:2px 6px;border-radius:5px;border:1px solid rgba(28,25,21,.09)}.pf{padding:8px 1.5rem;border-top:1px solid rgba(28,25,21,.09);background:#FDFBF8;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#8A837A}.toast{position:fixed;bottom:20px;right:20px;background:#1C1915;color:#fff;padding:9px 14px;border-radius:9px;font-size:12px;font-weight:500;transform:translateY(70px);opacity:0;transition:all .3s;z-index:200;max-width:340px}.toast.show{transform:translateY(0);opacity:1}.toast.ok{background:#2D5F3F}.toast.err{background:#DC2626}input[type=file]{display:none}</style></head><body><header class="hdr"><div class="logo"><div class="lm"><span></span><span></span><span></span><span></span></div><span class="ln">PatentLens</span><span class="ls">IP Classification Analyzer</span></div><div style="display:flex;gap:8px"><button class="hbtn ghost" onclick="clearAll()">Clear</button><button class="hbtn amber" id="dlBtn" onclick="dlCSV()" disabled>Download CSV</button></div></header><div class="page"><aside class="sb"><div class="sbb"><p class="lbl">Invention Disclosure</p><div class="dz" id="dz" onclick="document.getElementById('fi').click()" ondragover="dzo(event)" ondragleave="dzl()" ondrop="dzd(event)"><div class="dzt">Upload .txt file</div><div class="dzs">Drag and drop or click to browse</div></div><input type="file" id="fi" accept=".txt" onchange="lf(event)"><div id="fp" class="fc" style="display:none"><span id="fn">file.txt</span><span class="fcx" onclick="rf()">x</span></div><p class="lbl" style="margin-top:4px">Or paste text</p><textarea class="ta" id="txt" placeholder="Paste your invention disclosure here..." oninput="ucc()"></textarea><div class="cc" id="cc">0 characters</div><p class="lbl">Output Sections</p><div class="chks"><label class="chk on" id="ck1"><div class="dot"><div class="doti"></div></div><input type="checkbox" checked onchange="tc(this,'ck1')"> Keywords</label><label class="chk on" id="ck2"><div class="dot"><div class="doti"></div></div><input type="checkbox" checked onchange="tc(this,'ck2')"> IPC Classes</label><label class="chk on" id="ck3"><div class="dot"><div class="doti"></div></div><input type="checkbox" checked onchange="tc(this,'ck3')"> CPC Classes</label><label class="chk on" id="ck4"><div class="dot"><div class="doti"></div></div><input type="checkbox" checked onchange="tc(this,'ck4')"> Synonyms</label></div><button class="rbtn" id="rb" onclick="analyze()">Analyze Invention</button></div><div class="sbf"><div class="sd" id="sd"></div><span id="st">Paste disclosure text and click Analyze</span></div></aside><main class="main"><div class="mh"><div><div class="mt" id="mt">Analysis Results</div><div class="ms" id="ms">Paste your invention disclosure and click Analyze</div></div><input class="sr" type="text" placeholder="Search..." oninput="doSearch(this.value)"></div><div class="tabs"><div class="tab on" onclick="gt('kw',this)">Keywords <span class="tbg" id="bkw">0</span></div><div class="tab" onclick="gt('ipc',this)">IPC Classes <span class="tbg" id="bipc">0</span></div><div class="tab" onclick="gt('cpc',this)">CPC Classes <span class="tbg" id="bcpc">0</span></div></div><div class="stats" id="sr" style="display:none"><div class="stat"><div class="sn" id="skw">0</div><div class="sl">Keywords</div></div><div class="stat"><div class="sn" id="sipc">0</div><div class="sl">IPC codes</div></div><div class="stat"><div class="sn" id="scpc">0</div><div class="sl">CPC codes</div></div><div class="stat"><div class="sn" id="ssyn">0</div><div class="sl">Synonyms</div></div></div><div class="cnt"><div class="ldr" id="ldr"><div class="spin"></div><div class="lt" id="lt">Analyzing...</div><div class="ls2">Please wait 30-60 seconds</div></div><div class="emp" id="emp"><div class="et">No analysis yet</div><div class="es">Paste your invention disclosure text on the left and click Analyze Invention.</div></div><div class="panel" id="p-kw"><div class="tw"><table><thead><tr><th class="rn">#</th><th>Keyword</th><th>Category</th><th>Definition</th><th>Synonyms</th></tr></thead><tbody id="kwb"></tbody></table></div><div class="pf"><span id="kwc">-</span></div></div><div class="panel" id="p-ipc"><div class="tw"><table><thead><tr><th class="rn">#</th><th>IPC Code</th><th>Section</th><th>Definition</th><th>Relevance</th></tr></thead><tbody id="ipcb"></tbody></table></div><div class="pf"><span id="ipcc">-</span></div></div><div class="panel" id="p-cpc"><div class="tw"><table><thead><tr><th class="rn">#</th><th>CPC Code</th><th>Section</th><th>Definition</th><th>Relevance</th></tr></thead><tbody id="cpcb"></tbody></table></div><div class="pf"><span id="cpcc">-</span></div></div></div></main></div><div class="toast" id="toast"></div><script>let data={};function dzo(e){e.preventDefault();document.getElementById('dz').style.borderColor='#2D5F3F'}function dzl(){document.getElementById('dz').style.borderColor=''}function dzd(e){e.preventDefault();dzl();const f=e.dataTransfer.files[0];if(f)rf2(f)}function lf(e){const f=e.target.files[0];if(f)rf2(f)}function rf2(f){const r=new FileReader();r.onload=ev=>{document.getElementById('txt').value=ev.target.result;ucc()};r.readAsText(f);document.getElementById('fn').textContent=f.name;document.getElementById('fp').style.display='flex';document.getElementById('dz').style.display='none';toast('File loaded','ok')}function rf(){document.getElementById('fp').style.display='none';document.getElementById('dz').style.display='block';document.getElementById('fi').value=''}function ucc(){document.getElementById('cc').textContent=document.getElementById('txt').value.length.toLocaleString()+' characters'}function tc(i,id){document.getElementById(id).classList.toggle('on',i.checked)}function gt(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));el.classList.add('on');document.getElementById('p-'+t).classList.add('on');doSearch(document.querySelector('.sr').value)}function doSearch(q){q=q.toLowerCase().trim();['kw','ipc','cpc'].forEach(t=>{const b=document.getElementById(t+'b');if(!b)return;let v=0;b.querySelectorAll('tr').forEach(r=>{const m=!q||r.textContent.toLowerCase().includes(q);r.style.display=m?'':'none';if(m)v++});document.getElementById(t+'c').textContent=v+' result'+(v!==1?'s':'')})}async function analyze(){const txt=document.getElementById('txt').value.trim();if(!txt){toast('Please paste your invention disclosure text','err');return}setSt('go','Analyzing...');document.getElementById('ldr').classList.add('on');document.getElementById('emp').style.display='none';document.getElementById('rb').disabled=true;const msgs=['Analyzing invention disclosure...','Mapping IPC classification...','Identifying CPC subgroups...','Generating synonyms...','Building report...'];let mi=0;const iv=setInterval(()=>{document.getElementById('lt').textContent=msgs[++mi%msgs.length]},3000);try{const res=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt})});clearInterval(iv);const d=await res.json();if(!res.ok||d.error)throw new Error(d.error||'Server error');data=d;render(d);document.getElementById('mt').textContent=d.title||'Analysis Results';document.getElementById('ms').textContent=d.summary||'Complete';document.getElementById('dlBtn').disabled=false;document.getElementById('sr').style.display='flex';const ts=(d.keywords||[]).reduce((a,k)=>a+(k.synonyms||[]).length,0);document.getElementById('skw').textContent=(d.keywords||[]).length;document.getElementById('sipc').textContent=(d.ipc||[]).length;document.getElementById('scpc').textContent=(d.cpc||[]).length;document.getElementById('ssyn').textContent=ts;document.getElementById('bkw').textContent=(d.keywords||[]).length;document.getElementById('bipc').textContent=(d.ipc||[]).length;document.getElementById('bcpc').textContent=(d.cpc||[]).length;gt('kw',document.querySelector('.tab'));setSt('ok','Done - '+(d.keywords||[]).length+' keywords, '+(d.ipc||[]).length+' IPC, '+(d.cpc||[]).length+' CPC');toast('Analysis complete!','ok')}catch(err){clearInterval(iv);setSt('err','Error: '+err.message);toast('Error: '+err.message,'err');document.getElementById('emp').style.display='flex'}finally{document.getElementById('ldr').classList.remove('on');document.getElementById('rb').disabled=false}}const cm={'Core Invention':'b1','Material':'b2','Process':'b3','Application':'b4','Comparative':'b5'};function render(d){document.getElementById('kwb').innerHTML=(d.keywords||[]).map((k,i)=>`<tr><td class="rn">${i+1}</td><td><strong>${h(k.term)}</strong></td><td><span class="badge ${cm[k.category]||'b1'}">${h(k.category)}</span></td><td style="max-width:220px">${h(k.definition)}</td><td><div class="syns">${(k.synonyms||[]).map(s=>`<span class="syn">${h(s)}</span>`).join('')}</div></td></tr>`).join('');document.getElementById('kwc').textContent=(d.keywords||[]).length+' results';document.getElementById('ipcb').innerHTML=(d.ipc||[]).map((c,i)=>`<tr><td class="rn">${i+1}</td><td class="code">${h(c.code)}</td><td><span class="badge bi">${h(c.section)}</span></td><td style="max-width:220px">${h(c.definition)}</td><td style="max-width:200px;color:#4A4540">${h(c.relevance)}</td></tr>`).join('');document.getElementById('ipcc').textContent=(d.ipc||[]).length+' results';document.getElementById('cpcb').innerHTML=(d.cpc||[]).map((c,i)=>`<tr><td class="rn">${i+1}</td><td class="code">${h(c.code)}</td><td><span class="badge bc">${h(c.section)}</span></td><td style="max-width:220px">${h(c.definition)}</td><td style="max-width:200px;color:#4A4540">${h(c.relevance)}</td></tr>`).join('');document.getElementById('cpcc').textContent=(d.cpc||[]).length+' results'}function dlCSV(){if(!data.keywords){toast('No data','err');return}const e=v=>'"'+String(v||'').replace(/"/g,'""')+'"';const rows=[['PATENT CLASSIFICATION ANALYSIS'],['Invention:',data.title||''],['Summary:',data.summary||''],[]];rows.push(['=== KEYWORDS ==='],['#','Keyword','Category','Definition','Syn1','Syn2','Syn3','Syn4','Syn5']);(data.keywords||[]).forEach((k,i)=>{const s=k.synonyms||[];rows.push([i+1,k.term,k.category,k.definition,s[0]||'',s[1]||'',s[2]||'',s[3]||'',s[4]||''])});rows.push([],['=== IPC CODES ==='],['#','Code','Section','Definition','Relevance']);(data.ipc||[]).forEach((c,i)=>rows.push([i+1,c.code,c.section,c.definition,c.relevance]));rows.push([],['=== CPC CODES ==='],['#','Code','Section','Definition','Relevance']);(data.cpc||[]).forEach((c,i)=>rows.push([i+1,c.code,c.section,c.definition,c.relevance]));const csv=rows.map(r=>r.map(e).join(',')).join('\n');const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'})),download:'patent_classification.csv'});a.click();toast('CSV downloaded!','ok')}function h(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}function setSt(s,t){document.getElementById('sd').className='sd '+s;document.getElementById('st').textContent=t}function toast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+type+' show';setTimeout(()=>t.classList.remove('show'),4000)}function clearAll(){data={};['kw','ipc','cpc'].forEach(t=>{const b=document.getElementById(t+'b');if(b)b.innerHTML='';document.getElementById(t+'c').textContent='-';document.getElementById('b'+t).textContent='0'});document.getElementById('txt').value='';document.getElementById('emp').style.display='flex';document.getElementById('sr').style.display='none';document.getElementById('dlBtn').disabled=true;document.getElementById('mt').textContent='Analysis Results';document.getElementById('ms').textContent='Paste your invention disclosure and click Analyze';rf();ucc();setSt('','Paste disclosure text and click Analyze')}</script></body></html>"""
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        print("[%s] %s" % (self.address_string(), format % args))
-
+    def log_message(self, f, *a): print(f % a)
     def do_OPTIONS(self):
-        self.send_response(200)
-        self._cors()
-        self.end_headers()
-
+        self.send_response(200); self._cors(); self.end_headers()
     def do_GET(self):
         body = HTML.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
-
+        self._cors(); self.end_headers(); self.wfile.write(body)
     def do_POST(self):
-        if self.path == "/analyze":
-            try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length))
-                text = body.get("text", "").strip()
-                if not text:
-                    self._json({"error": "No text provided"}, 400)
-                    return
-                print("Calling Claude API...")
-                prompt = """You are a senior patent classification expert. Analyze the invention disclosure and return ONLY a valid JSON object. No markdown, no explanation.
+        if self.path != "/analyze":
+            self._json({"error": "not found"}, 404); return
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            txt = json.loads(self.rfile.read(n)).get("text", "").strip()
+            if not txt:
+                self._json({"error": "no text"}, 400); return
+            print("Calling Claude API...")
+            prompt = """You are a patent classification expert. Analyze this invention disclosure and return ONLY valid raw JSON (no markdown, no explanation).
 
-Invention Disclosure:
-\"\"\"
-%s
-\"\"\"
+Return this exact structure:
+{"title":"invention title","summary":"one sentence summary","keywords":[{"term":"keyword","category":"Core Invention","definition":"2 sentence definition","synonyms":["s1","s2","s3","s4","s5"]}],"ipc":[{"code":"B27D 1/00","section":"Plywood manufacture","definition":"official definition","relevance":"relevance to invention"}],"cpc":[{"code":"B27D 1/00","section":"Plywood manufacture","definition":"official definition","relevance":"relevance to invention"}]}
 
-Return exactly this structure:
-{
-  "title": "concise invention title max 10 words",
-  "summary": "one clear technical sentence",
-  "keywords": [{"term":"","category":"Core Invention|Material|Process|Application|Comparative","definition":"2-3 sentences","synonyms":["","","","",""]}],
-  "ipc": [{"code":"","section":"3-5 words","definition":"official definition","relevance":"1-2 sentences"}],
-  "cpc": [{"code":"","section":"3-5 words","definition":"official definition","relevance":"1-2 sentences"}]
-}
+REQUIREMENTS:
+- Exactly 20 keywords with category from: Core Invention, Material, Process, Application, Comparative
+- Exactly 50 IPC codes - real valid codes
+- Exactly 50 CPC codes - real valid codes  
+- Keep definitions under 15 words each
+- Keep relevance under 10 words each
+- Return ONLY the JSON object
 
-REQUIREMENTS: Minimum 20 keywords with 5 synonyms each. Minimum 75 real valid IPC codes. Minimum 75 real valid CPC codes. Return ONLY raw JSON.""" % text
+Invention disclosure:
+""" + txt[:3000]
 
-                payload = json.dumps({"model": MODEL, "max_tokens": 8000, "messages": [{"role": "user", "content": prompt}]}).encode()
-                req = Request("https://api.anthropic.com/v1/messages", data=payload,
-                    headers={"Content-Type": "application/json", "x-api-key": API_KEY, "anthropic-version": "2023-06-01"}, method="POST")
-                ctx = ssl.create_default_context()
-                with urlopen(req, context=ctx, timeout=120) as r:
-                    result = json.loads(r.read())
-                raw = "".join(b.get("text", "") for b in result.get("content", [])).strip()
-                if raw.startswith("```"):
-                    raw = raw.split("\n", 1)[-1]
-                if raw.endswith("```"):
-                    raw = raw.rsplit("```", 1)[0]
-                parsed = json.loads(raw.strip())
-                print("Done! Keywords: %d, IPC: %d, CPC: %d" % (len(parsed.get("keywords",[])), len(parsed.get("ipc",[])), len(parsed.get("cpc",[]))))
-                self._json(parsed)
-            except HTTPError as e:
-                msg = e.read().decode("utf-8", "ignore")[:300]
-                print("API Error %d: %s" % (e.code, msg))
-                self._json({"error": "API error %d: %s" % (e.code, msg)}, 502)
-            except Exception as e:
-                print("Error: %s" % e)
-                self._json({"error": str(e)}, 500)
-        else:
-            self._json({"error": "Not found"}, 404)
+            payload = json.dumps({
+                "model": MODEL,
+                "max_tokens": 4000,
+                "messages": [{"role": "user", "content": prompt}]
+            }).encode()
+            req = Request(
+                "https://api.anthropic.com/v1/messages",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": API_KEY,
+                    "anthropic-version": "2023-06-01"
+                },
+                method="POST"
+            )
+            ctx = ssl.create_default_context()
+            with urlopen(req, context=ctx, timeout=55) as r:
+                result = json.loads(r.read())
+            raw = "".join(b.get("text", "") for b in result.get("content", [])).strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1]
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            parsed = json.loads(raw.strip())
+            print("Done! KW:%d IPC:%d CPC:%d" % (
+                len(parsed.get("keywords", [])),
+                len(parsed.get("ipc", [])),
+                len(parsed.get("cpc", []))
+            ))
+            self._json(parsed)
+        except HTTPError as e:
+            msg = e.read().decode("utf-8", "ignore")[:200]
+            print("API Error %d: %s" % (e.code, msg))
+            self._json({"error": "API error: " + msg}, 502)
+        except Exception as e:
+            print("Error: %s" % e)
+            self._json({"error": str(e)}, 500)
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "POST,GET,OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _json(self, data, status=200):
@@ -356,11 +92,8 @@ REQUIREMENTS: Minimum 20 keywords with 5 synonyms each. Minimum 75 real valid IP
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
+        self._cors(); self.end_headers(); self.wfile.write(body)
 
 if __name__ == "__main__":
-    print("PatentLens server starting on port %d" % PORT)
-    server = HTTPServer(("0.0.0.0", PORT), Handler)
-    server.serve_forever()
+    print("PatentLens starting on port %d" % PORT)
+    HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
