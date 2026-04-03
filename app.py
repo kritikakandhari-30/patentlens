@@ -11,7 +11,7 @@ HTML = b"""<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport
 <div class="page">
 <aside class="sb"><div class="sbb">
 <p class="lbl">Invention Disclosure</p>
-<textarea class="ta" id="txt" placeholder="Paste your invention disclosure text here..." oninput="ucc()"></textarea>
+<textarea class="ta" id="txt" placeholder="Paste your invention disclosure text here..." oninput="ucc()" onpaste="setTimeout(ucc,100)" onchange="ucc()"></textarea>
 <div class="cc" id="cc">0 characters</div>
 <button class="rbtn" id="rb" onclick="analyze()">Analyze Invention</button>
 </div><div class="sbf"><div class="sd" id="sd"></div><span id="st">Paste disclosure and click Analyze</span></div></aside>
@@ -34,7 +34,7 @@ function gt(t,el){document.querySelectorAll('.tab').forEach(x=>x.classList.remov
 function doSearch(q){q=q.toLowerCase().trim();['kw','ipc','cpc'].forEach(t=>{const b=document.getElementById(t+'b');if(!b)return;let v=0;b.querySelectorAll('tr').forEach(r=>{const m=!q||r.textContent.toLowerCase().includes(q);r.style.display=m?'':'none';if(m)v++});document.getElementById(t+'c').textContent=v+' result'+(v!==1?'s':'')})}
 async function analyze(){
   const txt=document.getElementById('txt').value.trim();
-  if(!txt){toast('Please paste your invention disclosure text','err');return}
+  const txtVal=document.getElementById('txt').value.trim();if(!txtVal&&!txt){toast('Please paste your invention disclosure text','err');return}const finalTxt=txt||txtVal;
   setSt('go','Analyzing...');
   document.getElementById('ldr').classList.add('on');
   document.getElementById('emp').style.display='none';
