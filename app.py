@@ -98,9 +98,13 @@ function gt(t,el){
 }
 async function analyze(){
   var el=document.getElementById('txt');
-  var txt=el.value;
-  document.getElementById('status').textContent='Text length: '+txt.length;
-  if(txt.length<5){toast('Please paste your invention disclosure text first','err');return;}
+  var txt=el.value||el.textContent||el.innerHTML||'';
+  txt=txt.trim();
+  document.getElementById('status').textContent='Sending... ('+txt.length+' chars)';
+  if(txt.length<3){
+    txt=document.querySelector('#txt').value;
+    if(txt.length<3){toast('Please type or paste text first','err');return;}
+  }
   document.getElementById('ldr').classList.add('on');
   document.getElementById('emp').style.display='none';
   document.getElementById('status').textContent='Sending to server...';
@@ -163,7 +167,7 @@ function dlCSV(){
   (data.cpc||[]).forEach(function(c,i){rows.push([i+1,c.code,c.section,c.definition,c.relevance]);});
   var csv=rows.map(function(r){return r.map(e).join(',');}).join('\n');
   var a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}));
+  a.href=URL.createObjectURL(new Blob(['\N{BOM}'+csv],{type:'text/csv;charset=utf-8;'}));
   a.download='patent_classification.csv';
   a.click();
   toast('CSV downloaded!','ok');
